@@ -1,0 +1,82 @@
+# Render blueprint: free hosting for the FRIDGR API.
+# render.com > New > Blueprint > pick this GitHub repo. Fill every "sync: false" value in the dashboard.
+#
+# Free plan notes
+# - The service sleeps after 15 min without traffic; the first request then takes ~30-60 s.
+#   The app retries and shows "Waking up the server…". To stay warm, ping /health/live
+#   (no database call) every 10 min from cron-job.org (free).
+# - Outbound SMTP ports are blocked on free web services: send email with the Resend or
+#   Brevo HTTPS API (RESEND_API_KEY or BREVO_API_KEY), not SMTP.
+# - No persistent disk: nothing is written locally; data lives in Neon.
+services:
+  - type: web
+    name: fridgr-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    # Dev dependencies (TypeScript, Prisma types) are needed to build.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    # Free plan has no pre-deploy step, so migrations run right before the server starts.
+    # `migrate deploy` only applies new, committed migrations; it never resets data.
+    startCommand: npx prisma migrate deploy && node dist/index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: APP_ENV
+        value: production
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # ---- auth
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      # The public https URL Render shows for this service, e.g. https://fridgr-api.onrender.com
+      - key: BETTER_AUTH_URL
+        sync: false
+      - key: SESSION_DAYS
+        value: "30"
+      # ---- database (Neon): pooled URL for the app, direct URL for migrations
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      # ---- AI
+      - key: GEMINI_API_KEY
+        sync: false
+      # ---- email (set ONE of RESEND_API_KEY or BREVO_API_KEY)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      # Must be an address/domain verified at the provider, e.g. "FRIDGR <you@gmail.com>" for Brevo
+      - key: EMAIL_FROM
+        sync: false
+      - key: SUPPORT_INBOX
+        sync: false
+      # ---- Sign in with Apple
+      - key: APPLE_BUNDLE_ID
+        value: com.fridgr.app
+      - key: APPLE_TEAM_ID
+        sync: false
+      - key: APPLE_KEY_ID
+        sync: false
+      - key: APPLE_PRIVATE_KEY
+        sync: false
+      # ---- Google sign-in (iOS client id from Google Cloud Console)
+      - key: GOOGLE_CLIENT_ID_IOS
+        sync: false
+      - key: GOOGLE_CLIENT_ID_WEB
+        sync: false
+      # ---- push + subscriptions
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
+      - key: REVENUECAT_SECRET_API_KEY
+        sync: false
+      - key: REVENUECAT_WEBHOOK_SECRET
+        generateValue: true
+      - key: MEALDB_API_KEY
+        value: "1"

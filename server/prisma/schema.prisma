@@ -1,0 +1,771 @@
+// FRIDGR production schema — Neon PostgreSQL via Prisma.
+// UUID primary keys, timestamps everywhere, cascades from User to all personal data.
+// See FRIDGR_BACKEND_ARCHITECTURE.md for the ERD and privacy classification.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- enums
+enum FoodCategoryKind {
+  Protein
+  Veg
+  Dairy
+  Pantry
+  Produce
+}
+
+enum RecipeEffort {
+  Easy
+  Medium
+  Cheffy
+}
+
+enum RecipeStyle {
+  Bowl
+  Traybake
+  Salad
+}
+
+enum RecipeVisibility {
+  private
+  public
+}
+
+enum RecipeOrigin {
+  seeded
+  user_created
+  ai_generated
+  imported
+  adapted
+  external
+}
+
+enum NutritionSource {
+  usda
+  off
+  ai_estimate
+  user
+}
+
+enum ShoppingCategory {
+  PRODUCE
+  PANTRY_SPICE
+}
+
+enum CookingSessionStatus {
+  active
+  completed
+  abandoned
+}
+
+enum NotificationKind {
+  expiry
+  reply
+  plan
+  creator
+  streak
+  premium
+  cooked
+  published
+  system
+}
+
+enum SignalKind {
+  viewed
+  saved
+  unsaved
+  cooked
+  skipped
+  rated
+  liked
+  searched
+  ingredient_used
+  ingredient_rejected
+}
+
+enum AiFeature {
+  generate
+  adapt
+  import_normalise
+  scan
+  coach
+}
+
+enum SubscriptionStatus {
+  none
+  trial
+  active
+  grace
+  expired
+  cancelled
+  billing_issue
+}
+
+enum Platform {
+  ios
+  android
+  web
+}
+
+enum DeletionStatus {
+  requested
+  processing
+  completed
+}
+
+// ---------- users & auth (Better Auth: user / session / account / verification)
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  /// Better Auth core fields
+  name          String    @default("")
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  /// FRIDGR fields (filled by the Better Auth create hook)
+  firstName     String
+  lastName      String
+  handle        String    @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastSeenAt    DateTime?
+
+  profile         UserProfile?
+  foodProfile     FoodProfile?
+  accounts        Account[]
+  sessions        Session[]
+  fridgeItems     FridgeItem[]
+  recipes         Recipe[]                @relation("RecipeAuthor")
+  ratings         RecipeRating[]
+  saved           SavedRecipe[]
+  likes           Like[]
+  comments        Comment[]
+  following       Follow[]                @relation("Follower")
+  followers       Follow[]                @relation("Following")
+  collections     Collection[]
+  shoppingLists   ShoppingList[]
+  cookingSessions CookingSession[]
+  notifications   Notification[]
+  devices         DeviceToken[]
+  signals         UserSignal[]
+  aiGenerations   AiGeneration[]
+  aiUsageDays     AiUsageDay[]
+  subscription    Subscription?
+  auditLogs       AuditLog[]
+  deletion        AccountDeletionRequest?
+  importedRecipes ImportedRecipe[]
+  supportTickets  SupportTicket[]
+
+  @@index([createdAt])
+}
+
+/// Better Auth session. `token` is what the app sends as `Authorization: Bearer`.
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Better Auth account: one per sign-in method. providerId "credential" holds
+/// the argon2 password hash; "apple" / "google" hold the provider subject.
+/// For Apple, refreshToken is FRIDGR-encrypted and used to revoke on deletion.
+model Account {
+  id                    String    @id @default(uuid()) @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+/// Better Auth verification values: email codes and password-reset tokens.
+model Verification {
+  id         String   @id @default(uuid()) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// ---------- profiles
+model UserProfile {
+  userId          String    @id @db.Uuid
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio             String?
+  avatarIndex     Int       @default(0)
+  age             Int? // optional, only tunes portions/nutrition
+  theme           String    @default("light")
+  household       String? // solo | pair | family | large
+  defaultServings Int       @default(2)
+  cookingTimeMin  Int       @default(30)
+  skillLevel      String? // beginner | home | confident | chef
+  equipment       String[]  @default([])
+  shoppingHabit   String? // weekly | often | asneeded
+  recipeSources   String[]  @default([])
+  notifExpiry     Boolean   @default(true)
+  notifPlan       Boolean   @default(true)
+  notifCreators   Boolean   @default(false)
+  streakDays      Int       @default(0)
+  lastCookedAt    DateTime?
+  onboardedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+/// The Fridgr Food Profile: questionnaire answers + free-text "other" answers.
+/// Allergies / dislikes / cuisines live in their own tables (hard constraints, indexed).
+model FoodProfile {
+  userId       String   @id @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mainGoal     String?
+  eatingStyle  String?
+  skill        String?
+  cookTime     String?
+  household    String?
+  priorities   String[] @default([])
+  cravings     String[] @default([])
+  adventurous  String?
+  meals        String[] @default([])
+  frequency    String?
+  nutrition    String?
+  become       String?
+  mood         String?
+  otherAnswers Json? // { questionKey: text }
+  version      Int      @default(1)
+  updatedAt    DateTime @updatedAt
+
+  allergies UserAllergy[]
+  dislikes  UserDislike[]
+  cuisines  UserCuisine[]
+}
+
+/// Hard constraint: recipes and substitutions containing these are rejected.
+model UserAllergy {
+  id       String      @id @default(uuid()) @db.Uuid
+  userId   String      @db.Uuid
+  profile  FoodProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  allergen String // dairy | eggs | gluten | peanuts | treenuts | shellfish | fish | soy | other:<text>
+
+  @@unique([userId, allergen])
+}
+
+model UserDislike {
+  id      String      @id @default(uuid()) @db.Uuid
+  userId  String      @db.Uuid
+  profile FoodProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  food    String // option id or free text
+
+  @@unique([userId, food])
+}
+
+model UserCuisine {
+  id      String      @id @default(uuid()) @db.Uuid
+  userId  String      @db.Uuid
+  profile FoodProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  cuisine String
+  weight  Int         @default(1) // grows with behaviour
+
+  @@unique([userId, cuisine])
+}
+
+// ---------- foods (normalised ingredients)
+model FoodCategory {
+  id    String           @id @default(uuid()) @db.Uuid
+  kind  FoodCategoryKind @unique
+  label String
+  foods Food[]
+}
+
+model Food {
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String           @unique // canonical, lower-case
+  displayName     String
+  categoryId      String           @db.Uuid
+  category        FoodCategory     @relation(fields: [categoryId], references: [id])
+  defaultUnit     String           @default("pcs")
+  shelfLifeDays   Int              @default(7)
+  allergens       String[]         @default([]) // dairy, gluten, …
+  isDairy         Boolean          @default(false)
+  isAnimal        Boolean          @default(false)
+  // per 100 g
+  kcal            Float?
+  proteinG        Float?
+  carbsG          Float?
+  fatG            Float?
+  nutritionSource NutritionSource?
+  externalId      String? // USDA fdcId / OFF barcode
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  aliases           FoodAlias[]
+  fridgeItems       FridgeItem[]
+  recipeIngredients RecipeIngredient[]
+  shoppingItems     ShoppingItem[]
+
+  @@index([categoryId])
+}
+
+model FoodAlias {
+  id     String @id @default(uuid()) @db.Uuid
+  foodId String @db.Uuid
+  food   Food   @relation(fields: [foodId], references: [id], onDelete: Cascade)
+  alias  String @unique
+}
+
+// ---------- fridge
+model FridgeItem {
+  id             String           @id @default(uuid()) @db.Uuid
+  userId         String           @db.Uuid
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  foodId         String?          @db.Uuid
+  food           Food?            @relation(fields: [foodId], references: [id], onDelete: SetNull)
+  name           String // as entered / detected
+  category       FoodCategoryKind
+  quantity       Float            @default(1)
+  unit           String           @default("pcs")
+  expiresAt      DateTime?
+  addedVia       String           @default("manual") // manual | scan | import
+  scanConfidence Float?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([userId, expiresAt])
+  @@index([userId, foodId])
+}
+
+// ---------- recipes
+model Recipe {
+  id                  String           @id @default(uuid()) @db.Uuid
+  authorId            String?          @db.Uuid
+  author              User?            @relation("RecipeAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  origin              RecipeOrigin     @default(user_created)
+  visibility          RecipeVisibility @default(private)
+  title               String
+  description         String?
+  imageUrl            String?
+  tone                String? // cream | sage | blush placeholder tint
+  cuisine             String?
+  effort              RecipeEffort     @default(Easy)
+  style               RecipeStyle?
+  prepTimeMin         Int
+  servings            Int              @default(2)
+  kcal                Int?
+  proteinG            Int?
+  carbsG              Int?
+  fatG                Int?
+  nutritionSource     NutritionSource?
+  nutritionConfidence Float?
+  allergens           String[]         @default([]) // derived from ingredients
+  isDairyFree         Boolean          @default(false)
+  likesCount          Int              @default(0)
+  commentsCount       Int              @default(0)
+  savesCount          Int              @default(0)
+  ratingAvg           Float?
+  ratingCount         Int              @default(0)
+  // Recipes pulled from an external recipe database (TheMealDB, Spoonacular)
+  externalSource      String?
+  externalId          String?
+  sourceUrl           String?
+  videoUrl            String?
+  // AI provenance
+  aiGenerationId      String?          @db.Uuid
+  adaptedFromId       String?          @db.Uuid
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  publishedAt         DateTime?
+
+  ingredients     RecipeIngredient[]
+  steps           RecipeStep[]
+  ratings         RecipeRating[]
+  savedBy         SavedRecipe[]
+  likes           Like[]
+  comments        Comment[]
+  collections     CollectionRecipe[]
+  imported        ImportedRecipe?
+  cookingSessions CookingSession[]
+
+  @@unique([externalSource, externalId])
+  @@index([authorId])
+  @@index([visibility, publishedAt])
+  @@index([cuisine])
+  @@index([origin])
+}
+
+model RecipeIngredient {
+  id         String  @id @default(uuid()) @db.Uuid
+  recipeId   String  @db.Uuid
+  recipe     Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  foodId     String? @db.Uuid
+  food       Food?   @relation(fields: [foodId], references: [id], onDelete: SetNull)
+  name       String
+  amount     String // display string, e.g. "450 g"
+  quantity   Float?
+  unit       String?
+  isOptional Boolean @default(false)
+  position   Int     @default(0)
+
+  @@index([recipeId])
+  @@index([foodId])
+}
+
+model RecipeStep {
+  id          String   @id @default(uuid()) @db.Uuid
+  recipeId    String   @db.Uuid
+  recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  stepNumber  Int
+  phase       String?
+  instruction String
+  timerSec    Int?
+  ingredients String[] @default([])
+
+  @@unique([recipeId, stepNumber])
+}
+
+model RecipeRating {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipeId  String   @db.Uuid
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  rating    Int // 1..5
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, recipeId])
+  @@index([recipeId])
+}
+
+model SavedRecipe {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipeId  String   @db.Uuid
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, recipeId])
+  @@index([userId, createdAt])
+}
+
+model Like {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipeId  String   @db.Uuid
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, recipeId])
+  @@index([recipeId])
+}
+
+model Comment {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipeId  String    @db.Uuid
+  recipe    Recipe    @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  @@index([recipeId, createdAt])
+}
+
+model Follow {
+  followerId  String   @db.Uuid
+  follower    User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String   @db.Uuid
+  following   User     @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@id([followerId, followingId])
+  @@index([followingId])
+}
+
+model Collection {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  tagline   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipes CollectionRecipe[]
+
+  @@index([userId])
+}
+
+model CollectionRecipe {
+  collectionId String     @db.Uuid
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  recipeId     String     @db.Uuid
+  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  addedAt      DateTime   @default(now())
+
+  @@id([collectionId, recipeId])
+}
+
+// ---------- social import
+model SocialImportSource {
+  id            String   @id @default(uuid()) @db.Uuid
+  platform      String // tiktok | instagram | youtube | facebook | other
+  url           String   @unique
+  creatorHandle String?
+  creatorName   String?
+  title         String?
+  thumbnailUrl  String?
+  viewsLabel    String?
+  fetchedAt     DateTime @default(now())
+
+  imports ImportedRecipe[]
+}
+
+model ImportedRecipe {
+  id        String             @id @default(uuid()) @db.Uuid
+  recipeId  String             @unique @db.Uuid
+  recipe    Recipe             @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  userId    String             @db.Uuid
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceId  String             @db.Uuid
+  source    SocialImportSource @relation(fields: [sourceId], references: [id])
+  method    String // oembed | captions | pasted_text | screenshot
+  rawText   String? // what the model normalised (no copyrighted media stored)
+  createdAt DateTime           @default(now())
+
+  @@index([userId])
+}
+
+// ---------- shopping
+model ShoppingList {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String   @default("My list")
+  isDefault Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items ShoppingItem[]
+
+  @@index([userId])
+}
+
+model ShoppingItem {
+  id             String           @id @default(uuid()) @db.Uuid
+  listId         String           @db.Uuid
+  list           ShoppingList     @relation(fields: [listId], references: [id], onDelete: Cascade)
+  foodId         String?          @db.Uuid
+  food           Food?            @relation(fields: [foodId], references: [id], onDelete: SetNull)
+  name           String
+  category       ShoppingCategory @default(PANTRY_SPICE)
+  amount         String?
+  source         String? // "Missing • Harissa bowl"
+  sourceRecipeId String?          @db.Uuid
+  estPrice       Float?
+  isChecked      Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([listId, isChecked])
+}
+
+// ---------- cooking
+model CookingSession {
+  id                    String               @id @default(uuid()) @db.Uuid
+  userId                String               @db.Uuid
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipeId              String               @db.Uuid
+  recipe                Recipe               @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  status                CookingSessionStatus @default(active)
+  currentStep           Int                  @default(0)
+  adaptedSnapshot       Json? // steps/ingredients actually used (after adaptation)
+  rating                Int?
+  consumedFridgeItemIds String[]             @default([]) @db.Uuid
+  startedAt             DateTime             @default(now())
+  completedAt           DateTime?
+
+  @@index([userId, startedAt])
+}
+
+// ---------- notifications
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      NotificationKind
+  title     String
+  body      String
+  link      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
+}
+
+model DeviceToken {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expoPushToken String   @unique
+  platform      Platform
+  lastSeenAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ---------- personalisation signals
+model UserSignal {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @db.Uuid
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      SignalKind
+  recipeId  String?    @db.Uuid
+  foodId    String?    @db.Uuid
+  cuisine   String?
+  value     Float? // rating value, minutes, etc.
+  createdAt DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, kind])
+}
+
+// ---------- AI usage & quotas
+model AiGeneration {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature      AiFeature
+  model        String
+  status       String    @default("queued") // queued | running | done | failed | rejected
+  requestJson  Json // the structured request (no images; images reference storage keys)
+  responseJson Json?
+  inputTokens  Int?
+  outputTokens Int?
+  costUsd      Float?
+  error        String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model AiUsageDay {
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day         DateTime @db.Date
+  generations Int      @default(0)
+  scans       Int      @default(0)
+  imports     Int      @default(0)
+  coachMsgs   Int      @default(0)
+
+  @@id([userId, day])
+}
+
+// ---------- subscriptions (RevenueCat mirror)
+model Subscription {
+  userId           String             @id @db.Uuid
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rcAppUserId      String             @unique
+  status           SubscriptionStatus @default(none)
+  productId        String?
+  entitlement      String             @default("premium")
+  isActive         Boolean            @default(false)
+  isTrial          Boolean            @default(false)
+  store            String? // app_store | play_store
+  currentPeriodEnd DateTime?
+  willRenew        Boolean            @default(false)
+  updatedAt        DateTime           @updatedAt
+
+  events SubscriptionEvent[]
+}
+
+model SubscriptionEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String       @db.Uuid
+  subscription Subscription @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  rcEventId    String       @unique
+  type         String // INITIAL_PURCHASE, RENEWAL, CANCELLATION, EXPIRATION, BILLING_ISSUE, …
+  payload      Json
+  createdAt    DateTime     @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------- audit & deletion
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String // auth.login, auth.apple, account.delete.requested, …
+  ip        String?
+  userAgent String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+model AccountDeletionRequest {
+  userId       String         @id @db.Uuid
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       DeletionStatus @default(requested)
+  requestedAt  DateTime       @default(now())
+  scheduledFor DateTime // grace period end (immediate in v1: now + 0)
+  completedAt  DateTime?
+  appleRevoked Boolean        @default(false)
+  reason       String?
+}
+
+// ---------- support
+model SupportTicket {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String?   @db.Uuid
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email      String?
+  topic      String
+  message    String
+  appVersion String?
+  platform   String?
+  osVersion  String?
+  status     String    @default("open") // open | answered | closed
+  createdAt  DateTime  @default(now())
+  answeredAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId])
+}

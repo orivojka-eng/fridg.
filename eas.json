@@ -1,0 +1,26 @@
+{
+  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_USE_BACKEND": "true", "EXPO_PUBLIC_API_URL": "https://fridgr-api.onrender.com" }
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "env": { "EXPO_PUBLIC_USE_BACKEND": "true", "EXPO_PUBLIC_API_URL": "https://fridgr-api.onrender.com" },
+      "ios": { "simulator": false }
+    },
+    "production": {
+      "channel": "production",
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_USE_BACKEND": "true", "EXPO_PUBLIC_API_URL": "https://fridgr-api.onrender.com" }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": { "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID", "appleTeamId": "REPLACE_WITH_TEAM_ID" }
+    }
+  }
+}

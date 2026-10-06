@@ -1,0 +1,290 @@
+@import url('https://fonts.googleapis.com/css2?family=Galdeano&family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* FRIDGR Official Design Tokens */
+  --primary-lime: #C8F24A;
+  --primary-dark: #14180F;
+  --black: #0B0D0A;
+  
+  --bg-light: #F3F3F1;
+  --card-light: #FFFFFF;
+  --card-dark: #252820;
+  
+  --warm-cream: #EFEADA;
+  --soft-sage: #E7EEDD;
+  --soft-blush: #F0E6E2;
+  
+  --muted-gray: #8D9187;
+  --border-gray: #DADAD6;
+  
+  --alert-peach: #FFF2E5;
+  --alert-orange: #D97706;
+  
+  --font-brand: 'Galdeano', sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  
+  --radius-pill: 9999px;
+  --radius-card: 24px;
+  --radius-sm: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: #121417;
+  color: var(--black);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Mobile Frame Wrapper for Web Preview */
+.mobile-wrapper {
+  width: 100%;
+  max-width: 430px;
+  height: 100vh;
+  max-height: 932px;
+  background-color: var(--bg-light);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 440px) {
+  .mobile-wrapper {
+    height: 880px;
+    border-radius: 44px;
+    border: 8px solid #202428;
+    margin: 20px 0;
+  }
+}
+
+/* Dark Theme Support */
+.mobile-wrapper.dark-mode {
+  background-color: var(--black);
+  color: #FFFFFF;
+}
+
+/* Top Status Bar */
+.status-bar {
+  height: 44px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 700;
+  z-index: 50;
+  background: transparent;
+}
+
+.status-bar .notch {
+  width: 120px;
+  height: 28px;
+  background-color: #000000;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Content Area */
+.app-screen-container {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 90px;
+  scroll-behavior: smooth;
+}
+
+.app-screen-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* Typography Utilities */
+.font-brand {
+  font-family: var(--font-brand);
+}
+
+h1, .h1-title {
+  font-family: var(--font-body);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+h2, .h2-title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.text-muted {
+  color: var(--muted-gray);
+  font-size: 13px;
+}
+
+/* Common Pill & Card Components */
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-radius: var(--radius-pill);
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.pill-btn:active {
+  transform: scale(0.97);
+}
+
+.pill-primary-lime {
+  background-color: var(--primary-lime);
+  color: var(--primary-dark);
+}
+
+.pill-primary-dark {
+  background-color: var(--primary-dark);
+  color: #FFFFFF;
+}
+
+.pill-white {
+  background-color: #FFFFFF;
+  color: var(--primary-dark);
+  border: 1px solid var(--border-gray);
+}
+
+.pill-outline {
+  background: transparent;
+  border: 1.5px solid var(--primary-lime);
+  color: var(--primary-lime);
+}
+
+/* Badge Tags */
+.badge-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge-lime {
+  background-color: var(--primary-lime);
+  color: var(--primary-dark);
+}
+
+.badge-dark {
+  background-color: rgba(20, 24, 15, 0.85);
+  color: var(--primary-lime);
+}
+
+.badge-gray {
+  background-color: #EAEAEA;
+  color: #555555;
+}
+
+.badge-peach {
+  background-color: var(--alert-peach);
+  color: var(--alert-orange);
+}
+
+/* Floating Bottom Capsule Navigation Bar */
+.floating-navbar-container {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  height: 64px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  padding: 0 10px;
+}
+
+.floating-navbar-container.dark-mode {
+  background: rgba(20, 24, 15, 0.92);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  color: var(--muted-gray);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  width: 56px;
+}
+
+.nav-item.active {
+  color: var(--primary-dark);
+}
+
+.dark-mode .nav-item.active {
+  color: var(--primary-lime);
+}
+
+/* Center Floating Action Button (FAB) Scanner */
+.fab-scanner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: var(--primary-dark);
+  color: var(--primary-lime);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  transform: translateY(-12px);
+  box-shadow: 0 0 20px rgba(200, 242, 74, 0.45);
+  transition: transform 0.2s ease;
+}
+
+.fab-scanner:active {
+  transform: translateY(-12px) scale(0.95);
+}
+
+/* Circular Gauge Ring */
+.gauge-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}

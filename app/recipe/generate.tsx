@@ -9,7 +9,7 @@ import { useTheme, fs } from '../../src/theme';
 import { Screen, Header, SectionTag, Pill, Card, Divider, Button } from '../../src/components/ui';
 import { RecipeEffort, RecipeStyle } from "../../src/types";
 import { ProcessingOverlay } from '../../src/components/ProcessingOverlay';
-import { errorMessage, isApiError } from '../../src/api/client';
+import { errorMessage } from '../../src/lib/errors';
 
 const QUICK_PROMPTS = ['What can I make tonight?', 'Make it higher protein', 'Use up my spinach', 'Under 20 minutes'];
 const EFFORTS: RecipeEffort[] = ['Easy', 'Cheffy'];
@@ -69,15 +69,14 @@ export default function GeneratorScreen() {
     }
     setBusy(true);
     try {
-      // Backend: the API job runs while the overlay plays; the overlay never drops before its own minimum.
+      // The ranker runs while the overlay plays; the overlay never drops before its own minimum.
       const request = { prompt, ingredientNames: selected, servings: generatorServings, effort: generatorEffort, style: generatorStyle };
       await Promise.all([generateRecipesAsync(request, items), new Promise((r) => setTimeout(r, GENERATE_MS))]);
       setBusy(false);
       router.push('/recipe/results');
     } catch (e) {
       setBusy(false);
-      const premium = isApiError(e) && (e.code === 'PREMIUM_REQUIRED' || e.code === 'QUOTA_EXCEEDED');
-      Alert.alert(premium ? 'Out of generations' : 'Could not generate', errorMessage(e), premium ? [{ text: 'Not now', style: 'cancel' }, { text: 'See Premium', onPress: () => router.push('/premium') }] : undefined);
+      Alert.alert('Could not generate', errorMessage(e));
     }
   };
 

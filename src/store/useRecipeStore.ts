@@ -2,8 +2,6 @@ import { create } from 'zustand';
 import { Recipe, Collection, FridgeItem, RecipeEffort, RecipeStyle } from '../types';
 import { computeMatch, normalize, slugify } from "../lib/matching";
 import { useUserStore } from "./useUserStore";
-import { env } from '../config/env';
-import { recipesApi, isServerId, type ServerRecipe } from '../api/recipes';
 
 export interface GenerationRequest {
   prompt: string;
@@ -31,18 +29,11 @@ interface RecipeState {
   generatorStyle: RecipeStyle;
   selectedGeneratorIngredients: string[];
   lastGeneration: GenerationResult | null;
-  /** Server user ids the user follows (backend mode); `followedAuthors` keeps the names the UI shows. */
-  followedAuthorIds: string[];
-  hydrated: boolean;
-  /** Load catalogue, saved, likes, collections and follows from the API (backend mode). */
-  hydrate: () => Promise<void>;
-  /** Merge server recipes into the catalogue and sync per-user flags. */
-  upsertServerRecipes: (recipes: ServerRecipe[]) => void;
-  /** Real generation through the API (backend) or the local ranker (mock). Resolves with the result. */
+  /** Ranks the demo catalogue (local ranker). Resolves with the result. */
   generateRecipesAsync: (request: GenerationRequest, fridge: FridgeItem[]) => Promise<GenerationResult>;
-  /** Creates a recipe (POST in backend mode). */
+  /** Creates a recipe in the local catalogue. */
   createRecipeAsync: (recipe: Omit<Recipe, 'id' | 'createdAt'>) => Promise<Recipe>;
-  /** Finds or creates a collection by title (POST in backend mode). */
+  /** Finds or creates a collection by title. */
   ensureCollection: (title: string, tagline?: string) => Promise<Collection>;
 
   getRecipeById: (id: string) => Recipe | undefined;
@@ -379,99 +370,21 @@ const scoreRecipe = (recipe: Recipe, request: GenerationRequest, fridge: FridgeI
   return score;
 };
 
-const backend = () => env.USE_BACKEND;
-
-/** Strip server-only flags so the catalogue keeps the app's `Recipe` shape. */
-const toRecipe = (r: ServerRecipe): Recipe => {
-  const { isSaved: _s, isLiked: _l, myRating: _r, matchPercent: _m, missingCount: _mc, ...rest } = r;
-  return rest;
-};
-
 export const useRecipeStore = create<RecipeState>((set, get) => ({
-  recipes: backend() ? [] : mockRecipes,
-  collections: backend() ? [] : mockCollections,
-  savedRecipeIds: backend() ? [] : ['r1', 'r2', 'r3', 'r4', 'r5', 'r6'],
-  likedRecipeIds: backend() ? [] : ['r1'],
-  madeRecipeIds: backend() ? [] : ['r1', 'r2'],
-  followedAuthors: backend() ? [] : ['Nadia Benali', 'Sam Okafor'],
-  followedAuthorIds: [],
+  recipes: mockRecipes,
+  collections: mockCollections,
+  savedRecipeIds: ['r1', 'r2', 'r3', 'r4', 'r5', 'r6'],
+  likedRecipeIds: ['r1'],
+  madeRecipeIds: ['r1', 'r2'],
+  followedAuthors: ['Nadia Benali', 'Sam Okafor'],
   ratings: {},
-  hydrated: !backend(),
 
-  upsertServerRecipes: (incoming) =>
-    set((state) => {
-      const byId = new Map(state.recipes.map((r) => [r.id, r]));
-      incoming.forEach((r) => byId.set(r.id, { ...byId.get(r.id), ...toRecipe(r) }));
-      const saved = new Set(state.savedRecipeIds);
-      const liked = new Set(state.likedRecipeIds);
-      const ratings = { ...state.ratings };
-      incoming.forEach((r) => {
-        if (r.isSaved !== undefined) (r.isSaved ? saved.add(r.id) : saved.delete(r.id));
-        if (r.isLiked !== undefined) (r.isLiked ? liked.add(r.id) : liked.delete(r.id));
-        if (r.myRating) ratings[r.id] = r.myRating;
-      });
-      return { recipes: [...byId.values()], savedRecipeIds: [...saved], likedRecipeIds: [...liked], ratings };
-    }),
+  generateRecipesAsync: async (request, fridge) => get().generateRecipes(request, fridge),
 
-  hydrate: async () => {
-    if (!backend()) return;
-    const [catalog, saved, mine, collections, followingIds] = await Promise.all([
-      recipesApi.catalog().then((r) => r.recipes),
-      recipesApi.saved(),
-      recipesApi.mine(),
-      recipesApi.collections(),
-      recipesApi.following().catch(() => [] as string[]),
-    ]);
-    const all = [...catalog, ...saved, ...mine];
-    const names = new Set<string>();
-    all.forEach((r) => {
-      if (r.authorId && followingIds.includes(r.authorId) && r.authorName) names.add(r.authorName);
-    });
-    set({ savedRecipeIds: saved.map((r) => r.id), collections, followedAuthorIds: followingIds, followedAuthors: [...names], madeRecipeIds: all.filter((r) => r.myRating).map((r) => r.id), hydrated: true });
-    get().upsertServerRecipes(all);
-  },
+  createRecipeAsync: async (recipe) => get().addRecipe(recipe),
 
-  generateRecipesAsync: async (request, fridge) => {
-    if (!backend()) return get().generateRecipes(request, fridge);
-    const recipes = await recipesApi.generate({ prompt: request.prompt, ingredientNames: request.ingredientNames, servings: request.servings, effort: request.effort, style: request.style });
-    get().upsertServerRecipes(recipes);
-    const result: GenerationResult = { ...request, recipeIds: recipes.map((r) => r.id), generatedAt: Date.now() };
-    set({ lastGeneration: result });
-    return result;
-  },
-
-  createRecipeAsync: async (recipe) => {
-    if (!backend()) return get().addRecipe(recipe);
-    const created = await recipesApi.create({
-      title: recipe.title,
-      description: recipe.description,
-      imageUrl: recipe.imageUrl,
-      tone: recipe.tone,
-      cuisine: recipe.cuisine,
-      effort: recipe.effort ?? 'Easy',
-      style: recipe.style,
-      prepTimeMin: recipe.prepTimeMin,
-      servings: recipe.servings ?? 2,
-      kcal: recipe.calories || undefined,
-      proteinG: recipe.proteinG || undefined,
-      carbsG: recipe.carbsG || undefined,
-      fatG: recipe.fatG || undefined,
-      ingredients: recipe.ingredients.map((i) => ({ name: i.name, amount: i.amount, isOptional: !!i.isOptional })),
-      steps: recipe.steps.map((s) => ({ phase: s.phase, instruction: s.instruction, timerSec: s.timerSec, ingredients: s.ingredients })),
-      visibility: 'public',
-    });
-    get().upsertServerRecipes([created]);
-    return toRecipe(created);
-  },
-
-  ensureCollection: async (title, tagline = 'new collection') => {
-    const existing = get().collections.find((c) => c.title === title);
-    if (existing) return existing;
-    if (!backend()) return get().addCollection(title, tagline);
-    const created = await recipesApi.createCollection(title, tagline);
-    set((state) => ({ collections: [...state.collections, created] }));
-    return created;
-  },
+  ensureCollection: async (title, tagline = 'new collection') =>
+    get().collections.find((c) => c.title === title) ?? get().addCollection(title, tagline),
   generatorServings: 2,
   generatorEffort: 'Easy',
   generatorStyle: 'Bowl',
@@ -488,7 +401,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       followedAuthors: [],
       ratings: {},
       collections: [],
-      followedAuthorIds: [],
       selectedGeneratorIngredients: [],
       lastGeneration: null,
       generatorServings: 2,
@@ -511,7 +423,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     const r = get().recipes.find((x) => x.id === id);
     const wasSaved = get().savedRecipeIds.includes(id);
     if (r && !wasSaved) useUserStore.getState().recordSignal("saved", r.cuisine, id);
-    if (backend() && isServerId(id)) (wasSaved ? recipesApi.unsave(id) : recipesApi.save(id)).catch(() => undefined);
     set((state) => ({
       savedRecipeIds: state.savedRecipeIds.includes(id)
         ? state.savedRecipeIds.filter((rId) => rId !== id)
@@ -523,11 +434,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     const r = get().recipes.find((x) => x.id === id);
     const wasLiked = get().likedRecipeIds.includes(id);
     if (r && !wasLiked) useUserStore.getState().recordSignal("liked", r.cuisine, id);
-    if (backend() && isServerId(id)) {
-      (wasLiked ? recipesApi.unlike(id) : recipesApi.like(id))
-        .then((res) => set((state) => ({ recipes: state.recipes.map((x) => (x.id === id ? { ...x, likes: res.likes } : x)) })))
-        .catch(() => undefined);
-    }
     set((state) => ({
       likedRecipeIds: state.likedRecipeIds.includes(id)
         ? state.likedRecipeIds.filter((rId) => rId !== id)
@@ -537,13 +443,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
 
   toggleFollowAuthor: (author) => {
     const following = get().followedAuthors.includes(author);
-    if (backend()) {
-      const authorId = (get().recipes.find((r) => r.authorName === author) as ServerRecipe | undefined)?.authorId;
-      if (authorId) {
-        (following ? recipesApi.unfollow(authorId) : recipesApi.follow(authorId)).catch(() => undefined);
-        set((state) => ({ followedAuthorIds: following ? state.followedAuthorIds.filter((i) => i !== authorId) : [...state.followedAuthorIds, authorId] }));
-      }
-    }
     set((state) => ({
       followedAuthors: following ? state.followedAuthors.filter((a) => a !== author) : [...state.followedAuthors, author],
     }));
@@ -554,13 +453,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     if (r) {
       useUserStore.getState().recordSignal("cooked", r.cuisine, id);
       if (r.style) useUserStore.getState().recordSignal("cooked", r.style);
-    }
-    if (backend() && isServerId(id)) {
-      // A completed cooking session is the strongest signal: rating + streak live on the server.
-      recipesApi
-        .startCooking(id)
-        .then((session) => recipesApi.completeCooking(session.id, rating))
-        .catch(() => (rating ? recipesApi.rate(id, rating).catch(() => undefined) : undefined));
     }
     set((state) => ({
       madeRecipeIds: state.madeRecipeIds.includes(id) ? state.madeRecipeIds : [...state.madeRecipeIds, id],
@@ -575,7 +467,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   },
 
   addRecipeToCollection: (collectionId, recipeId) => {
-    if (backend() && isServerId(collectionId) && isServerId(recipeId)) recipesApi.addToCollection(collectionId, recipeId).catch(() => undefined);
     set((state) => ({
       collections: state.collections.map((c) =>
         c.id === collectionId && !c.recipeIds.includes(recipeId) ? { ...c, recipeIds: [...c.recipeIds, recipeId] } : c,

@@ -6,9 +6,7 @@ import { useUserStore } from '../../src/store/useUserStore';
 import { font, fs, s, colors } from '../../src/theme';
 import { Screen, Button, IconButton, PressableScale } from '../../src/components/ui';
 import { Mascot } from '../../src/components/Mascot';
-import { errorMessage } from '../../src/api/client';
-import { authApi } from '../../src/api/auth';
-import { env } from '../../src/config/env';
+import { errorMessage } from '../../src/lib/errors';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -28,7 +26,7 @@ export default function LogInScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      // With the backend off any valid pair logs in and shows the welcome-back screen.
+      // Demo mode: any valid pair logs in and shows the welcome-back screen.
       await logIn(email, password);
     } catch (e) {
       setError(errorMessage(e));
@@ -40,13 +38,7 @@ export default function LogInScreen() {
   const forgot = async () => {
     const address = email.trim();
     if (!EMAIL_RE.test(address)) return setError('Enter your email first, then tap "Forgot password".');
-    if (!env.USE_BACKEND) return Alert.alert('Reset password', `We'll email a reset link to ${address} once accounts are connected.`);
-    try {
-      await authApi.forgotPassword(address);
-      Alert.alert('Check your inbox', `If ${address} has an account, a reset link is on its way.`);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
+    Alert.alert('Reset password', `We'll email a reset link to ${address} once accounts are connected.`);
   };
 
   return (

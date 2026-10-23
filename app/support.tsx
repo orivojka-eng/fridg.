@@ -6,8 +6,6 @@ import { useTheme, fs, font, colors } from '../src/theme';
 import { Screen, Header, Card, Button, Pill, PressableScale } from '../src/components/ui';
 import { useUserStore } from '../src/store/useUserStore';
 import { LEGAL } from '../src/config/legal';
-import { env } from '../src/config/env';
-import { api, errorMessage } from '../src/api/client';
 
 type Topic = 'bug' | 'question' | 'feedback' | 'account' | 'billing';
 const TOPICS: Array<{ id: Topic; label: string }> = [
@@ -27,8 +25,7 @@ const FAQ: Array<{ q: string; a: string }> = [
 
 /**
  * Support & contact (App Store guideline: a visible way to reach you).
- * Sends a ticket to the API when connected; otherwise opens the mail app
- * with the message pre-filled so nobody is ever stuck.
+ * Opens the mail app with the message pre-filled.
  */
 export default function SupportScreen() {
   const t = useTheme();
@@ -36,8 +33,8 @@ export default function SupportScreen() {
   const [topic, setTopic] = useState<Topic>('question');
   const [message, setMessage] = useState('');
   const [email, setEmail] = useState(profile.email ?? '');
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
+  const busy = false;
+  const sent = false;
   const [open, setOpen] = useState<number | null>(null);
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
@@ -51,16 +48,7 @@ export default function SupportScreen() {
 
   const send = async () => {
     if (message.trim().length < 10) return Alert.alert('A bit more detail', 'Tell us what happened in a sentence or two.');
-    if (!env.USE_BACKEND) return mailFallback();
-    setBusy(true);
-    try {
-      await api.post('/support/tickets', { topic, message: message.trim(), email: email.trim() || undefined, appVersion: version, platform: Platform.OS, osVersion: String(Platform.Version) });
-      setSent(true);
-    } catch (e) {
-      Alert.alert('Could not send', `${errorMessage(e)} You can also email ${LEGAL.supportEmail}.`, [{ text: 'Open email', onPress: mailFallback }, { text: 'OK' }]);
-    } finally {
-      setBusy(false);
-    }
+    mailFallback();
   };
 
   return (

@@ -5,13 +5,12 @@ import { ShieldAlert, Download } from '../../src/components/ui/lucide';
 import { useUserStore } from '../../src/store/useUserStore';
 import { useTheme, fs, font, colors } from '../../src/theme';
 import { Screen, Header, Card, Button } from '../../src/components/ui';
-import { env } from '../../src/config/env';
-import { api, errorMessage } from '../../src/api/client';
+import { errorMessage } from '../../src/lib/errors';
 import { startFreshAccount } from '../../src/lib/session';
 
 /**
- * In-app account deletion (App Store guideline 5.1.1(v)). The server revokes
- * Sign in with Apple, ends every session and hard-deletes all personal data.
+ * In-app account deletion (App Store guideline 5.1.1(v)). Demo mode: signs
+ * out and resets the local demo data.
  */
 export default function DeleteAccountScreen() {
   const router = useRouter();
@@ -44,22 +43,8 @@ export default function DeleteAccountScreen() {
       { text: 'Delete forever', style: 'destructive', onPress: run },
     ]);
 
-  const [exporting, setExporting] = useState(false);
-  const exportData = async () => {
-    if (!env.USE_BACKEND) {
-      Alert.alert('Export my data', 'Data export is available once your account is connected to the FRIDGR service.');
-      return;
-    }
-    if (exporting) return;
-    setExporting(true);
-    try {
-      const { sentTo } = await api.post<{ ok: true; sentTo: string }>('/account/export/email');
-      Alert.alert('Export sent', `A JSON file with everything we hold about you was emailed to ${sentTo}.`);
-    } catch (e) {
-      Alert.alert('Export not sent', errorMessage(e, 'We could not send the export. Try again in a minute.'));
-    } finally {
-      setExporting(false);
-    }
+  const exportData = () => {
+    Alert.alert('Export my data', 'Data export is available once your account is connected to the FRIDGR service.');
   };
 
   return (

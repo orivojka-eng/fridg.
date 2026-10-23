@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { ShoppingItem, ShoppingCategory, RecipeIngredient } from '../types';
 import { namesMatch, normalize } from '../lib/matching';
-import { env } from '../config/env';
-import { shoppingApi, toServerCategory } from '../api/shopping';
 
 export interface NewShoppingItem {
   name: string;
@@ -15,8 +13,6 @@ export interface NewShoppingItem {
 
 interface ShoppingState {
   items: ShoppingItem[];
-  hydrated: boolean;
-  hydrate: () => Promise<void>;
   toggleItemCheck: (id: string) => void;
   addItem: (item: NewShoppingItem) => boolean;
   /** Returns how many were actually added (duplicates are skipped). */
@@ -60,26 +56,15 @@ const mockShoppingItems: ShoppingItem[] = [
 ];
 
 let counter = 100;
-const backend = () => env.USE_BACKEND;
-
-const fromServer = (i: ShoppingItem): ShoppingItem => ({ ...i, estPrice: i.estPrice ?? guessPrice(i.name) });
 
 export const useShoppingStore = create<ShoppingState>((set, get) => ({
-  items: backend() ? [] : mockShoppingItems,
-  hydrated: !backend(),
-
-  hydrate: async () => {
-    if (!backend()) return;
-    const items = await shoppingApi.list();
-    set({ items: items.map(fromServer), hydrated: true });
-  },
+  items: mockShoppingItems,
 
   toggleItemCheck: (id) => {
     const next = !get().items.find((i) => i.id === id)?.isChecked;
     set((state) => ({
       items: state.items.map((item) => (item.id === id ? { ...item, isChecked: next } : item)),
     }));
-    if (backend()) shoppingApi.update(id, { isChecked: next }).catch(() => get().hydrate().catch(() => undefined));
   },
 
   addItem: (item) => get().addMultipleItems([item]) > 0,
@@ -109,12 +94,6 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
       });
       return { items };
     });
-    if (backend() && newItems.length) {
-      shoppingApi
-        .add(newItems.filter((i) => i.name.trim()).map((i) => ({ name: i.name.trim(), category: toServerCategory(i.category), amount: i.amount, source: i.source, estPrice: i.estPrice ?? guessPrice(i.name), sourceRecipeId: i.sourceRecipeId })))
-        .then((items) => set({ items: items.map(fromServer) }))
-        .catch(() => get().hydrate().catch(() => undefined));
-    }
     return added;
   },
 
@@ -131,11 +110,9 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
 
   removeItem: (id) => {
     set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
-    if (backend()) shoppingApi.remove(id).catch(() => get().hydrate().catch(() => undefined));
   },
   clearChecked: () => {
     set((state) => ({ items: state.items.filter((item) => !item.isChecked) }));
-    if (backend()) shoppingApi.clearChecked().catch(() => get().hydrate().catch(() => undefined));
   },
   clear: () => set({ items: [] }),
 

@@ -1,13 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { env } from '../../src/config/env';
-import { recipesApi } from '../../src/api/recipes';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Search, Heart, MessageSquare, Send, X } from '../../src/components/ui/lucide';
 import { useRecipeStore } from '../../src/store/useRecipeStore';
 import { useFridgeStore } from '../../src/store/useFridgeStore';
 import { useTheme, spacing, fs, font } from '../../src/theme';
-import { Screen, IconButton, Pill, MatchBadge, Tag, Avatar, EmptyState, Button, page } from '../../src/components/ui';
+import { Screen, IconButton, Pill, MatchBadge, Tag, Avatar, EmptyState, page } from '../../src/components/ui';
 import { useUserStore } from '../../src/store/useUserStore';
 import { MediaPlaceholder } from '../../src/components/ui/MediaPlaceholder';
 import { computeMatch, normalize } from '../../src/lib/matching';
@@ -35,19 +33,6 @@ export default function DiscoverScreen() {
   const [category, setCategory] = useState<Category>('For you');
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [libraryState, setLibraryState] = useState<'idle' | 'searching' | 'done'>('idle');
-  const upsertServerRecipes = useRecipeStore((s) => s.upsertServerRecipes);
-  // Pull matching recipes from the recipe library (TheMealDB / Spoonacular) into the feed.
-  const searchLibrary = () => {
-    const q = query.trim();
-    if (!env.USE_BACKEND || q.length < 2 || libraryState === 'searching') return;
-    setLibraryState('searching');
-    recipesApi
-      .searchLibrary(q)
-      .then((found) => upsertServerRecipes(found))
-      .catch(() => undefined)
-      .finally(() => setLibraryState('done'));
-  };
 
   const feed = useMemo(() => {
     let list: Recipe[] = recipes.filter((r) => r.authorName);
@@ -95,10 +80,9 @@ export default function DiscoverScreen() {
                 placeholder="Search creators, dishes, cuisines"
                 placeholderTextColor={t.textMuted}
                 value={query}
-                onChangeText={(v) => { setQuery(v); setLibraryState('idle'); }}
+                onChangeText={setQuery}
                 style={[styles.searchInput, { color: t.text }]}
                 returnKeyType="search"
-                onSubmitEditing={searchLibrary}
               />
               <TouchableOpacity hitSlop={8} onPress={() => { setQuery(''); setSearchOpen(false); }}>
                 <X size={16} color={t.textMuted} />
@@ -123,15 +107,12 @@ export default function DiscoverScreen() {
         {feed.length === 0 && (
           <EmptyState
             emoji="🔍"
-            title={category === 'Following' ? 'You are not following anyone yet' : libraryState === 'searching' ? 'Searching the recipe library…' : 'Nothing here yet'}
+            title={category === 'Following' ? 'You are not following anyone yet' : 'Nothing here yet'}
             message={
               category === 'Following'
                 ? 'Follow a creator from any recipe to build your feed.'
-                : env.USE_BACKEND && query.trim().length > 1 && libraryState === 'idle'
-                  ? 'Press search on your keyboard to look through hundreds more recipes.'
-                  : 'Try another filter or clear your search.'
+                : 'Try another filter or clear your search.'
             }
-            action={env.USE_BACKEND && query.trim().length > 1 && libraryState === 'idle' ? <Button label="Search the recipe library" variant="dark" onPress={searchLibrary} /> : undefined}
           />
         )}
 

@@ -6,7 +6,6 @@ import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useUserStore } from '../src/store/useUserStore';
-import { warmUpServer } from '../src/api/http';
 import { useTheme, motion, colors } from '../src/theme';
 import { SplashOverlay } from '../src/components/SplashOverlay';
 
@@ -132,20 +131,14 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Galdeano: require('../assets/fonts/Galdeano-Regular.ttf'),
   });
-  // A stored session (backend mode) is checked while the splash plays so the
-  // guards never flash the intro at a signed-in user.
-  const sessionChecked = useUserStore((u) => u.sessionChecked);
-  const restoreSession = useUserStore((u) => u.restoreSession);
-  const ready = !!(fontsLoaded || fontError) && sessionChecked;
+  const ready = !!(fontsLoaded || fontError);
   const [splashDone, setSplashDone] = useState(false);
   const setBootDone = useUserStore((u) => u.setBootDone);
 
   // Hand over from the native splash (same logo, same black) to our animated one.
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => undefined);
-    warmUpServer();
-    restoreSession().catch(() => undefined);
-  }, [restoreSession]);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -7,7 +7,7 @@ import { font, fs, s, colors } from '../../src/theme';
 import { Screen, Button, IconButton, PressableScale } from '../../src/components/ui';
 import { Mascot } from "../../src/components/Mascot";
 import { startFreshAccount } from "../../src/lib/session";
-import { errorMessage } from '../../src/api/client';
+import { errorMessage } from '../../src/lib/errors';
 import { isCancelled, socialSignIn } from '../../src/lib/socialAuth';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

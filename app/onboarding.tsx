@@ -18,7 +18,6 @@ import { ProgressRing } from '../src/components/ui/ProgressRing';
 import { AgeDial } from '../src/components/AgeDial';
 import { Paywall, PLANS, PlanKey } from '../src/components/Paywall';
 import { Mascot, MascotBubble } from '../src/components/Mascot';
-import { purchasePlan, purchasesAvailable, restorePurchases } from '../src/lib/purchases';
 import { computeMatch } from '../src/lib/matching';
 import { FoodProfile } from '../src/types';
 
@@ -702,21 +701,13 @@ export default function OnboardingScreen() {
           skipLabel="Continue on the free plan"
           onClose={() => finish(false)}
           onSubscribe={async (p) => {
-            if (purchasesAvailable()) {
-              const ok = await purchasePlan(p);
-              if (!ok) return false;
-            }
+            // Demo mode: the plan activates locally.
             setPlan(p);
             setPremium(true);
             addNotification({ avatarLetter: '★', kind: 'premium', title: 'Welcome to FRIDGR Premium', message: `Your ${PLANS[p].label.toLowerCase()} plan is active.`, link: '/(tabs)/profile' });
             return true;
           }}
-          onRestore={async () => {
-            if (!purchasesAvailable()) return profile.isPremium;
-            const ok = await restorePurchases();
-            if (ok) setPremium(true);
-            return ok;
-          }}
+          onRestore={async () => profile.isPremium}
           onDone={() => finish(false)}
         />
       </>

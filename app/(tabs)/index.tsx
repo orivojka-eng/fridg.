@@ -13,7 +13,7 @@ import { ProgressRing } from '../../src/components/ui/ProgressRing';
 import { Mascot } from '../../src/components/Mascot';
 import { FirstRunGuide, GuideStep, TargetRect } from "../../src/components/FirstRunGuide";
 import { PermissionPrimer } from '../../src/components/PermissionPrimer';
-import { pushPermissionUndetermined, registerForPush } from '../../src/api/notifications';
+import { pushPermissionUndetermined, registerForPush } from '../../src/lib/push';
 import { tabBarStyleFor } from "../../src/theme/tabBar";
 import { computeMatch, fridgeUsagePercent, greeting, plural, sortByMatch } from '../../src/lib/matching';
 

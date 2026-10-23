@@ -10,7 +10,7 @@ import { Screen, Header, SectionTag, Card, Pill, Button, Notice } from '../../sr
 import { MediaPlaceholder } from '../../src/components/ui/MediaPlaceholder';
 import { pickImageFromLibrary } from '../../src/services/imagePickerService';
 import { RecipeEffort } from '../../src/types';
-import { errorMessage } from '../../src/api/client';
+import { errorMessage } from '../../src/lib/errors';
 import { PermissionPrimer } from '../../src/components/PermissionPrimer';
 
 let photoPrimerSeen = false;

@@ -6,15 +6,14 @@ import { useUserStore } from "../../src/store/useUserStore";
 import { font, fs, s, colors } from '../../src/theme';
 import { Screen, Button, PressableScale } from '../../src/components/ui';
 import { Mascot } from '../../src/components/Mascot';
-import { env } from '../../src/config/env';
-import { errorMessage } from '../../src/api/client';
+import { errorMessage } from '../../src/lib/errors';
 
 const CODE_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
 /**
  * Registration confirmation: a 6-digit code "sent" to the sign-up email.
- * Verification is mocked (any 6 digits pass) until the auth backend exists.
+ * Demo mode: any 6 digits pass.
  */
 export default function VerifyScreen() {
   const router = useRouter();
@@ -47,7 +46,7 @@ export default function VerifyScreen() {
       Animated.timing(shake, { toValue: 0, duration: 60, easing: Easing.linear, useNativeDriver: true }),
     ]).start();
 
-  // With the backend off any six digits pass. Kept out of an effect so its
+  // Demo mode: any six digits pass. Kept out of an effect so its
   // own state changes can never cancel the timer it just started.
   const submitting = useRef(false);
   const submit = async (value: string) => {
@@ -58,17 +57,13 @@ export default function VerifyScreen() {
     Keyboard.dismiss();
     const started = Date.now();
     try {
-      if (env.USE_BACKEND) {
-        await verifyEmail(value);
-      } else {
-        await new Promise((r) => setTimeout(r, 700));
-      }
+      await new Promise((r) => setTimeout(r, 700));
       // Keep the "checking" beat visible for at least 600 ms so it never flickers.
       await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - started))));
       setChecking(false);
       setDone(true);
       Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 12 }).start();
-      if (!env.USE_BACKEND) setTimeout(() => verifyEmail(), 1200);
+      setTimeout(() => verifyEmail(), 1200);
     } catch (e) {
       setChecking(false);
       submitting.current = false;
@@ -86,12 +81,9 @@ export default function VerifyScreen() {
   };
 
   // Once verified, go to onboarding explicitly (the guard also drops this route).
-  // With the backend on, the flag flips as soon as the server confirms; the
-  // done animation above gets its 1.2 s beat before the route changes.
   useEffect(() => {
     if (!emailVerified) return;
-    const t = setTimeout(() => router.replace("/onboarding"), env.USE_BACKEND ? 1200 : 0);
-    return () => clearTimeout(t);
+    router.replace("/onboarding");
   }, [emailVerified, router]);
 
   const resend = () => {

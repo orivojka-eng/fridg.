@@ -1,10 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
-import { env } from '../../src/config/env';
-import { recipesApi, type ImportFoundVia } from '../../src/api/recipes';
 import * as ImagePicker from 'expo-image-picker';
 import { PermissionPrimer } from '../../src/components/PermissionPrimer';
-import { errorMessage } from '../../src/api/client';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Link2, X, Check } from '../../src/components/ui/lucide';
 import { useShoppingStore } from '../../src/store/useShoppingStore';
@@ -29,6 +26,8 @@ interface MediaItem {
 }
 
 let mediaPrimerSeen = false;
+
+type ImportFoundVia = 'page_data' | 'linked_page' | 'video' | 'user_video' | 'screenshots' | 'caption' | 'pasted_text';
 
 const FOUND_VIA_LABEL: Record<ImportFoundVia, string> = {
   page_data: 'FULL RECIPE FROM THE PAGE',
@@ -57,7 +56,7 @@ export default function SocialImportScreen() {
   const router = useRouter();
   const t = useTheme();
   const params = useLocalSearchParams<{ url?: string }>();
-  const { recipes, addRecipe, toggleSaveRecipe, savedRecipeIds, ensureCollection, addRecipeToCollection, upsertServerRecipes } = useRecipeStore();
+  const { recipes, addRecipe, toggleSaveRecipe, savedRecipeIds, ensureCollection, addRecipeToCollection } = useRecipeStore();
   const addMissingIngredients = useShoppingStore((s) => s.addMissingIngredients);
   const fridge = useFridgeStore((s) => s.items);
 
@@ -86,8 +85,8 @@ export default function SocialImportScreen() {
   // Saved video / screenshots the user adds (TikTok, Reels and other posts that hide their recipe text).
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [mediaPrimer, setMediaPrimer] = useState(false);
-  const [foundVia, setFoundVia] = useState<ImportFoundVia | null>(null);
-  const [stageLine, setStageLine] = useState<string | null>(null);
+  const [foundVia] = useState<ImportFoundVia | null>(null);
+  const [stageLine] = useState<string | null>(null);
   const canExtract = isValidUrl || pastedText.trim().length > 20 || media.length > 0;
   const slowImport = media.length > 0 || platform === 'YouTube';
 
@@ -112,12 +111,7 @@ export default function SocialImportScreen() {
     if (phase === 'done') { setPhase('idle'); setResultId(null); }
   };
 
-  /**
-   * Backend: the API reads the post's public metadata (oEmbed / Open Graph /
-   * schema.org) and normalises it with the model. When a platform does not
-   * expose the recipe text, the user pastes the caption instead. Nothing is
-   * scraped from behind a login.
-   */
+  /** Demo mode: a link becomes a copy of a sample recipe. */
   const extract = async () => {
     const clean = url.trim();
     if (!canExtract) return;
@@ -125,37 +119,6 @@ export default function SocialImportScreen() {
     setAddedMissing(false);
     setImportError(null);
 
-    if (env.USE_BACKEND) {
-      try {
-        const uploadIds: string[] = [];
-        for (const [i, m] of media.entries()) {
-          setStageLine(m.kind === 'video' ? 'Uploading the video' : `Uploading screenshot ${i + 1} of ${media.length}`);
-          uploadIds.push(await recipesApi.uploadImportMedia(m.uri, m.mimeType));
-        }
-        setStageLine(null);
-        const [res] = await Promise.all([
-          recipesApi.importRecipe({ url: isValidUrl ? (clean.startsWith('http') ? clean : `https://${clean}`) : undefined, text: pastedText.trim() || undefined, uploadIds: uploadIds.length ? uploadIds : undefined }),
-          new Promise((r) => setTimeout(r, EXTRACT_MS)),
-        ]);
-        setFoundVia(res.foundVia ?? null);
-        if (!res.found || !res.recipe) {
-          setShowPaste(true);
-          setImportError(res.reason ?? 'Could not find a full recipe in that post. Paste the caption and try again.');
-          setPhase('idle');
-          return;
-        }
-        upsertServerRecipes([res.recipe]);
-        setMedia([]);
-        setResultId(res.recipe.id);
-        setPhase('done');
-        if (res.allergenHits?.length) Alert.alert('Heads up', `This recipe contains ${joinNatural(res.allergenHits)}, which is on your allergy list. Adapt it before cooking.`);
-      } catch (e) {
-        setStageLine(null);
-        setImportError(errorMessage(e));
-        setPhase('idle');
-      }
-      return;
-    }
     if (media.length && !isValidUrl) {
       setPhase('idle');
       Alert.alert('Needs the FRIDGR service', 'Reading videos and screenshots works once the app is connected to the FRIDGR server.');

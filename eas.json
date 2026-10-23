@@ -3,19 +3,16 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal",
-      "env": { "EXPO_PUBLIC_USE_BACKEND": "true", "EXPO_PUBLIC_API_URL": "https://fridgr-api.onrender.com" }
+      "distribution": "internal"
     },
     "staging": {
       "distribution": "internal",
       "channel": "staging",
-      "env": { "EXPO_PUBLIC_USE_BACKEND": "true", "EXPO_PUBLIC_API_URL": "https://fridgr-api.onrender.com" },
       "ios": { "simulator": false }
     },
     "production": {
       "channel": "production",
-      "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_USE_BACKEND": "true", "EXPO_PUBLIC_API_URL": "https://fridgr-api.onrender.com" }
+      "autoIncrement": true
     }
   },
   "submit": {

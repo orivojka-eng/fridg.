@@ -1,12 +1,5 @@
 import { create } from 'zustand';
 import { UserProfile, AppNotification, FoodProfile } from "../types";
-import { env } from '../config/env';
-import { authApi } from '../api/auth';
-import { profileApi, queueSignal, type SignalInput } from '../api/profile';
-import { onSessionLost } from '../api/client';
-import { notificationsApi } from '../api/notifications';
-import { logOutPurchases } from '../lib/purchases';
-import type { ServerUser } from '../api/types';
 
 export const FREE_GENERATIONS_PER_DAY = 5;
 
@@ -35,11 +28,6 @@ export interface AccountInput {
 
 interface UserState {
   profile: UserProfile;
-  /** Server user id when signed in against the API (undefined in mock mode). */
-  userId?: string;
-  /** True once the stored session has been checked at boot (always true in mock mode). */
-  sessionChecked: boolean;
-  restoreSession: () => Promise<void>;
   /** Promo intro slides shown once after install, before the welcome screen. */
   introSeen: boolean;
   setIntroSeen: () => void;
@@ -94,14 +82,7 @@ interface UserState {
   markAllNotificationsRead: () => void;
   addNotification: (n: Omit<AppNotification, 'id' | 'timeAgo' | 'isRead'>) => void;
   getUnreadCount: () => number;
-  /** Replace local state with the server's view of the user. */
-  applyServerUser: (user: ServerUser) => void;
-  /** Pull notifications from the API (backend mode). */
-  hydrateNotifications: () => Promise<void>;
 }
-
-/** Runs the post-sign-in sync without a static import cycle (sync.ts imports this store). */
-const syncAll = () => import('../lib/sync').then((m) => m.hydrateAfterSignIn()).catch(() => undefined);
 
 const mockProfile: UserProfile = {
   name: 'Sofia Marchetti',
@@ -175,72 +156,10 @@ const mockNotifications: AppNotification[] = [
 
 let notifCounter = 100;
 
-const backend = () => env.USE_BACKEND;
-
-const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
-
-/** Maps the API user onto the app's `UserProfile` shape (keeps mock-only fields intact). */
-const profileFromServer = (u: ServerUser, prev: UserProfile): UserProfile => ({
-  ...prev,
-  name: u.name,
-  firstName: u.firstName,
-  lastName: u.lastName,
-  email: u.email,
-  age: u.age,
-  handle: u.handle,
-  bio: u.bio,
-  savedCount: u.savedCount,
-  publishedCount: u.publishedCount,
-  followersCount: compact(u.followersCount),
-  streakDays: u.streakDays,
-  cookingTimeMin: u.cookingTimeMin,
-  household: u.household,
-  skillLevel: u.skillLevel,
-  equipment: u.equipment,
-  shoppingHabit: u.shoppingHabit,
-  recipeSources: u.recipeSources,
-  notifPrefs: u.notifPrefs,
-  allergies: u.foodProfile?.allergies ?? prev.allergies,
-  cuisines: u.foodProfile?.cuisines ?? prev.cuisines,
-  foodProfile: u.foodProfile ? { ...u.foodProfile, signals: prev.foodProfile?.signals ?? {} } : prev.foodProfile,
-  isPremium: u.isPremium,
-});
-
-/** Onboarding answers → the two server calls (profile + food profile). Fire-and-forget. */
-const syncAnswers = (answers: OnboardingAnswers, onboarded: boolean) => {
-  if (!backend()) return;
-  profileApi
-    .patch({
-      household: answers.household ?? null,
-      cookingTimeMin: answers.cookingTimeMin,
-      skillLevel: answers.skillLevel ?? null,
-      equipment: answers.equipment,
-      shoppingHabit: answers.shoppingHabit ?? null,
-      recipeSources: answers.recipeSources,
-      notifPrefs: answers.notifPrefs,
-      onboarded,
-    })
-    .catch(() => undefined);
-  const fp = answers.foodProfile ?? {};
-  profileApi
-    .putFoodProfile({
-      ...fp,
-      allergies: fp.allergies ?? answers.allergies,
-      cuisines: fp.cuisines ?? answers.cuisines,
-      other: fp.other,
-      ...(answers.mood ? { mood: answers.mood } : {}),
-    })
-    .catch(() => undefined);
-};
-
-const SIGNAL_KINDS: SignalInput['kind'][] = ['viewed', 'saved', 'unsaved', 'cooked', 'skipped', 'rated', 'liked', 'searched', 'ingredient_used', 'ingredient_rejected'];
-
 export const useUserStore = create<UserState>((set, get) => ({
   profile: mockProfile,
   notifications: mockNotifications,
   theme: "light",
-  userId: undefined,
-  sessionChecked: !backend(),
   introSeen: false,
   setIntroSeen: () => set({ introSeen: true }),
   isAuthenticated: false,
@@ -249,36 +168,6 @@ export const useUserStore = create<UserState>((set, get) => ({
   hasOnboarded: false,
   profileReadyPending: false,
   tourDone: true,
-
-  applyServerUser: (u) =>
-    set((state) => ({
-      userId: u.id,
-      profile: profileFromServer(u, state.profile),
-      avatarIndex: u.avatarIndex,
-      theme: u.theme,
-      emailVerified: u.emailVerified,
-      hasOnboarded: u.hasOnboarded,
-    })),
-
-  restoreSession: async () => {
-    if (!backend()) {
-      set({ sessionChecked: true });
-      return;
-    }
-    const user = await authApi.restore();
-    if (user) {
-      get().applyServerUser(user);
-      set({ isAuthenticated: true, justLoggedIn: false, profileReadyPending: false, tourDone: true, introSeen: true, notifications: [] });
-      void syncAll();
-    }
-    set({ sessionChecked: true });
-  },
-
-  hydrateNotifications: async () => {
-    if (!backend()) return;
-    const notifications = await notificationsApi.list();
-    set({ notifications });
-  },
 
   finishProfileReady: () => set({ profileReadyPending: false }),
   setTourDone: () => set({ tourDone: true }),
@@ -292,29 +181,17 @@ export const useUserStore = create<UserState>((set, get) => ({
       profile: { ...state.profile, savedCount: 0, publishedCount: 0, followersCount: "0", streakDays: 0, isPremium: false, bio: "New in the kitchen" },
     })),
 
-  verifyEmail: async (code) => {
-    if (backend()) {
-      const user = await authApi.verifyEmail(code ?? '', get().profile.email);
-      get().applyServerUser(user);
-    }
+  // Demo: any code confirms the email.
+  verifyEmail: async () => {
     set({ emailVerified: true });
-    void syncAll();
   },
 
-  resendCode: async () => {
-    if (backend()) await authApi.resendCode(get().profile.email);
-  },
+  resendCode: async () => {},
 
   signUp: async (account) => {
     const firstName = account.firstName.trim();
     const lastName = account.lastName.trim();
     const email = account.email.trim().toLowerCase();
-    if (backend()) {
-      const user = await authApi.register({ email, password: account.password, firstName, lastName });
-      get().applyServerUser(user);
-      set({ isAuthenticated: true, emailVerified: user.emailVerified, justLoggedIn: false, hasOnboarded: false, profileReadyPending: false, tourDone: false });
-      return;
-    }
     set((state) => ({
       isAuthenticated: true,
       emailVerified: false,
@@ -334,22 +211,8 @@ export const useUserStore = create<UserState>((set, get) => ({
     }));
   },
 
-  logIn: async (email, password) => {
-    if (backend()) {
-      const user = await authApi.login(email.trim().toLowerCase(), password);
-      get().applyServerUser(user);
-      set({
-        isAuthenticated: true,
-        // A returning user who never finished onboarding is sent straight there.
-        justLoggedIn: user.emailVerified && user.hasOnboarded,
-        profileReadyPending: false,
-        tourDone: true,
-        notifications: [],
-      });
-      void syncAll();
-      return;
-    }
-    // Mock: the demo profile stands in for the account on the server.
+  // Demo: any email and password signs in to the demo profile.
+  logIn: async (email) => {
     set((state) => ({
       isAuthenticated: true,
       emailVerified: true,
@@ -362,48 +225,26 @@ export const useUserStore = create<UserState>((set, get) => ({
   },
 
   signInWithApple: async (input) => {
-    if (!backend()) {
-      await get().signUp({ firstName: input.fullName?.givenName ?? 'Alex', lastName: input.fullName?.familyName ?? 'Demo', email: 'alex.demo@apple.com', password: 'demo-account' });
-      set({ emailVerified: true });
-      return;
-    }
-    const { user, created } = await authApi.apple(input);
-    get().applyServerUser(user);
-    set({ isAuthenticated: true, justLoggedIn: !created && user.hasOnboarded, profileReadyPending: false, tourDone: !created, notifications: [] });
-    void syncAll();
+    await get().signUp({ firstName: input.fullName?.givenName ?? 'Alex', lastName: input.fullName?.familyName ?? 'Demo', email: 'alex.demo@apple.com', password: 'demo-account' });
+    set({ emailVerified: true });
   },
 
-  signInWithGoogle: async (idToken) => {
-    if (!backend()) {
-      await get().signUp({ firstName: 'Alex', lastName: 'Demo', email: 'alex.demo@google.com', password: 'demo-account' });
-      set({ emailVerified: true });
-      return;
-    }
-    const { user, created } = await authApi.google(idToken);
-    get().applyServerUser(user);
-    set({ isAuthenticated: true, justLoggedIn: !created && user.hasOnboarded, profileReadyPending: false, tourDone: !created, notifications: [] });
-    void syncAll();
+  signInWithGoogle: async () => {
+    await get().signUp({ firstName: 'Alex', lastName: 'Demo', email: 'alex.demo@google.com', password: 'demo-account' });
+    set({ emailVerified: true });
   },
 
   logOut: () => {
-    if (backend()) {
-      authApi.logout().catch(() => undefined);
-      logOutPurchases().catch(() => undefined);
-    }
-    set({ isAuthenticated: false, emailVerified: false, justLoggedIn: false, hasOnboarded: false, profileReadyPending: false, userId: undefined });
+    set({ isAuthenticated: false, emailVerified: false, justLoggedIn: false, hasOnboarded: false, profileReadyPending: false });
   },
 
-  deleteAccount: async (password, reason) => {
-    if (backend()) await authApi.deleteAccount(password, reason);
-    set({ isAuthenticated: false, emailVerified: false, justLoggedIn: false, hasOnboarded: false, profileReadyPending: false, userId: undefined, profile: mockProfile, notifications: [] });
+  deleteAccount: async () => {
+    set({ isAuthenticated: false, emailVerified: false, justLoggedIn: false, hasOnboarded: false, profileReadyPending: false, profile: mockProfile, notifications: [] });
   },
 
   finishWelcomeBack: () => set({ justLoggedIn: false }),
 
-  recordSignal: (kind, tag, recipeId) => {
-    if (backend() && SIGNAL_KINDS.includes(kind as SignalInput['kind'])) {
-      queueSignal({ kind: kind as SignalInput['kind'], cuisine: tag, recipeId });
-    }
+  recordSignal: (kind, tag) => {
     set((state) => {
       if (!tag) return {};
       const key = `${kind}:${tag}`;
@@ -414,10 +255,6 @@ export const useUserStore = create<UserState>((set, get) => ({
   },
 
   updateAccount: (patch) => {
-    if (backend()) {
-      if (patch.firstName !== undefined || patch.lastName !== undefined) profileApi.updateAccount({ firstName: patch.firstName, lastName: patch.lastName }).catch(() => undefined);
-      if (patch.age !== undefined) profileApi.patch({ age: patch.age ?? null }).catch(() => undefined);
-    }
     set((state) => {
       const firstName = patch.firstName ?? state.profile.firstName;
       const lastName = patch.lastName ?? state.profile.lastName;
@@ -429,19 +266,10 @@ export const useUserStore = create<UserState>((set, get) => ({
   bootDone: false,
 
   setBootDone: () => set({ bootDone: true }),
-  setAvatarIndex: (index) => {
-    if (backend()) profileApi.patch({ avatarIndex: index }).catch(() => undefined);
-    set({ avatarIndex: index });
-  },
-  toggleTheme: () =>
-    set((state) => {
-      const theme = state.theme === 'light' ? 'dark' : 'light';
-      if (backend()) profileApi.patch({ theme }).catch(() => undefined);
-      return { theme };
-    }),
+  setAvatarIndex: (index) => set({ avatarIndex: index }),
+  toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
 
   completeOnboarding: (answers) => {
-    syncAnswers(answers, true);
     set((state) => ({
       hasOnboarded: true,
       profileReadyPending: true,
@@ -450,7 +278,6 @@ export const useUserStore = create<UserState>((set, get) => ({
   },
 
   updatePreferences: (answers) => {
-    syncAnswers(answers, false);
     set((state) => ({
       profile: { ...state.profile, ...answers },
     }));
@@ -470,17 +297,13 @@ export const useUserStore = create<UserState>((set, get) => ({
   incrementPublished: () =>
     set((state) => ({ profile: { ...state.profile, publishedCount: state.profile.publishedCount + 1 } })),
 
-  markNotificationRead: (id) => {
-    if (backend() && !id.startsWith('n')) notificationsApi.read(id).catch(() => undefined);
+  markNotificationRead: (id) =>
     set((state) => ({
       notifications: state.notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
-    }));
-  },
+    })),
 
-  markAllNotificationsRead: () => {
-    if (backend()) notificationsApi.readAll().catch(() => undefined);
-    set((state) => ({ notifications: state.notifications.map((n) => ({ ...n, isRead: true })) }));
-  },
+  markAllNotificationsRead: () =>
+    set((state) => ({ notifications: state.notifications.map((n) => ({ ...n, isRead: true })) })),
 
   addNotification: (n) =>
     set((state) => ({
@@ -489,8 +312,3 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   getUnreadCount: () => get().notifications.filter((n) => !n.isRead).length,
 }));
-
-// A rejected refresh token means the server no longer trusts this device.
-onSessionLost(() => {
-  if (useUserStore.getState().isAuthenticated) useUserStore.getState().logOut();
-});
